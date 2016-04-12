@@ -23,14 +23,20 @@ for i, kid in enumerate(root.getchildren()):
         continue
     else:
         if hasattr(kid.awardID, 'referencedIDVID'):
-            piid = kid.awardID.referencedIDVID.PIID
-            modNum = kid.awardID.referencedIDVID.modNumber
+            piidIDV = kid.awardID.referencedIDVID.PIID.text
+            modNumIDV = kid.awardID.referencedIDVID.modNumber.text
+            piid = kid.awardID.awardContractID.PIID.text
+            modNum = kid.awardID.awardContractID.modNumber.text
         else: 
-            piid = kid.awardID.awardContractID.PIID
-            modNum = kid.awardID.awardContractID.modNumber
+            piid = kid.awardID.awardContractID.PIID.text
+            modNum = kid.awardID.awardContractID.modNumber.text
+            piidIDV = None
+            modNumIDV = None
         
         data[i]={'modNum' : modNum,
                    'piid' : piid,
+                   'piidIDV' : piidIDV,
+                   'modNumIDV': modNumIDV,
                    'agencyID' : kid.awardID.awardContractID.agencyID.text, 
                    'transNum': kid.awardID.awardContractID.transactionNumber.text,
                    'comp_type': getattr(kid.competition, 'extentCompeted', default),
@@ -40,11 +46,13 @@ for i, kid in enumerate(root.getchildren()):
                    'vendorLocaitonCongDist' : getattr(kid.vendor.vendorSiteDetails.vendorLocation, 'congressionalDistrictCode', default),
                    'vendorCOSmallBussinesDetermination': kid.vendor.contractingOfficerBusinessSizeDetermination.text,
                    'placeOfPerformanceState': getattr(kid.placeOfPerformance.principalPlaceOfPerformance, 'stateCode', default),
-                   'placeofPerformanceZip': getattr(kid.placeOfPerformance, 'placeOfPerformanceZIPCode', default),
+                   'placeofPerformanceZip': str(getattr(kid.placeOfPerformance, 'placeOfPerformanceZIPCode', default)),
                    'placeofPerformanceCongDist' : getattr(kid.placeOfPerformance, 'placeOfPerformanceCongressionalDistrict', default),
                    'vendorDUNS': kid.vendor.vendorSiteDetails.vendorDUNSInformation.DUNSNumber.text,
                    'solicitation_procedures': getattr(kid.competition, 'solicitationProcedures', default),
+                   'descriptionOfContractRequirement': getattr(kid.contractData, 'descriptionOfContractRequirement', default),
                    'typ_set_aside': getattr(kid.competition, 'typeOfSetAside', default),
+                   'statuteExcpToFairOp': getattr(kid.competition, 'statutoryExceptionToFairOpportunity', default),
                    'evaluated_Preference': getattr(kid.competition, 'evaluated_Preference', default),
                    'obligatedAmount': kid.dollarValues.obligatedAmount.text,
                    'baseAndExercisedOptionsValue': kid.dollarValues.baseAndExercisedOptionsValue.text,
@@ -57,6 +65,7 @@ for i, kid in enumerate(root.getchildren()):
                    'ultimateCompletionDate':kid.relevantContractDates.ultimateCompletionDate.text,
                    'contractingOfficeAgencyID': kid.purchaserInformation.contractingOfficeAgencyID.text,
                    'contractingOfficeID': kid.purchaserInformation.contractingOfficeID.text,
+                   'forProfit': getattr(kid.vendor.vendorSiteDetails.vendorOrganizationFactors.profitStructure, 'isForProfitOrganization', default),
                    'fundingRequestingAgencyID': kid.purchaserInformation.fundingRequestingAgencyID.text,
                    'fundingRequestingOfficeID': kid.purchaserInformation.fundingRequestingOfficeID.text,
                    'multiYearContract': getattr(kid.contractData, 'multiYearContract', default),
@@ -69,7 +78,7 @@ for i, kid in enumerate(root.getchildren()):
                    'contractFinancing': getattr(kid.contractData, 'contractFinancing', default),
                    'foreignFunding': kid.purchaserInformation.foreignFunding.text,
                    'productOrServiceCode': kid.productOrServiceInformation.productOrServiceCode.text,
-#                   'contractBundling': kid.productOrServiceInformation.contractBundling.text,
+                   'contractBundling': getattr(kid.productOrServiceInformation, 'contractBundling', default),
                    'claimantProgramCode': getattr(kid.productOrServiceInformation, 'claimantProgramCode', default),
                    'principalNAICSCode': getattr(kid.productOrServiceInformation, 'principalNAICSCode', default),
                    'systemEquipmentCode': getattr(kid.productOrServiceInformation, 'systemEquipmentCode', default),
