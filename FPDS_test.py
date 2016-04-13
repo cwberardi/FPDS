@@ -12,5 +12,3 @@ def tagtest(root, num):
         
     assert len(set(test))==num
     
-def lentest(df, root):
-    assert len(df)==len(root.getchildren())-1
