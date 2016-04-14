@@ -11,24 +11,23 @@ import numpy as np
 from FPDS_test import tagtest
 pd.set_option('float_format',"%.2f")
 #%%
-path = r'C:\Users\Chris\Downloads\DOD-OTHER_DOD-DEPT-10012014TO09302015-Archive\OTHER_DOD_AGENCIES-AWARD.xml'
-parsed = objectify.parse(path)
-root = parsed.getroot()
-
-tagtest(root, 2)
-#%%
-def FPDSxmlparse(root, default=np.nan):
+def FPDSxmlparse(path, default=np.nan, tags = 2):
     '''
     Function sorts through each child of the xml root, except for the 'count' child, and extracts relevent xml tags using the python getattr method, which 
     returns the respective data if the specificied dependenet path is present or returns a default response if not present.
        input: 
-           root - must be list lxml.objectify.elements
-           default - value returned if dependent path is not in child
+           path [string] - valid file path to xml archive data
+           default[optional] - value returned if dependent path is not in child
+           tags[int] - value used to check the number of xml tags in a given archive
        return: pandas dataframe with each xml child as a row
     '''
-    data = {}
-    default = default
-
+    assert type(path)   ==str    
+    data                = {}
+    default             = default
+    
+    parsed = objectify.parse(path)
+    root = parsed.getroot()
+    tagtest(root, tags)
     
     for i, kid in enumerate(root.getchildren()):
         # 'count' child does not contain valid contract data, consequently it is skipped
@@ -109,6 +108,37 @@ def FPDSxmlparse(root, default=np.nan):
     assert all(df.isnull().all())==False
     
     return df
+    
 #%%
-df = FPDSxmlparse(root)
-df.isnull().sum().sort_values(ascending=False).div(len(df))
+def FPDSstoreh5(path, key, df):
+    '''
+    This function adds a dataframe to an existing HDF5store.  However, before adding it checks to see if the key is alrady in the store.  
+    If so, returns assertion error
+    
+    input:
+        path [string] - file path to valid HDF5store
+        key [string] - key value to be used to in HDF5 store
+        df [Object] - valid pandas dataframe object
+        
+    returns: None
+    '''
+    assert type(path)   ==str 
+    assert type(key)    ==str
+    assert type(df)     ==pd.DataFrame
+    
+    storeName = ''.join(['/', key])
+    store = pd.HDFStore(path)
+    
+    if storeName in store.keys():
+        assert storeName in store.keys(), 'Key already in HDF5 Store'  
+    else:
+        store[key] = df
+        
+    print(store)
+    store.close()
+    
+#%%
+pathr = r'C:\Users\Chris\Downloads\DOD-OTHER_DOD-DEPT-10012014TO09302015-Archive\OTHER_DOD_AGENCIES-AWARD.xml'
+paths = r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\FPDS.h5'
+FPDSstoreh5(paths, 'Other_DoD_FY14', FPDSxmlparse(pathr))
+#df.isnull().sum().sort_values(ascending=False).div(len(df))
