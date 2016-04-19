@@ -6,25 +6,26 @@ Created on Tue Apr  5 11:15:37 2016
 """
 
 from lxml import objectify
+from lxml import etree
 import pandas as pd
 import numpy as np
 import string
-from FPDS_test import get_xmlList, tagtest
+from FPDS_test import get_xmlList
 pd.set_option('display.float_format', lambda x:'%f'%x)
 
 HDF5path = r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\FPDS.h5'
 #%%
-def FPDSxmlparse(path, default=np.nan, tags = 2):
+def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}award', '{http://www.fpdsng.com/FPDS}count']):
     '''
-    Function sorts through each child of the xml root, except for the 'count' child.
+    Function iterates through each tag in the xml document selecting only those in the tags variable.
        input: 
            path [string] - valid file path to xml archive data
            default[optional] - value returned if dependent path is not in child
-           tags[int] - value used to check the number of xml tags in a given archive
+           tags[list] - tag values used in iterparse
        return: pandas dataframe with each xml child as a row
     '''
-    assert type(path)   ==str, 'path is not a string'    
-    assert type(tags)   ==int, 'Number of tags is not an integer'
+    assert type(path)   ==str, 'path is a string'    
+    assert type(tags)   ==list, 'list of tags to use in iterparse'
     
     def childhandlr(child, path, dtype, default):
         '''
@@ -42,20 +43,18 @@ def FPDSxmlparse(path, default=np.nan, tags = 2):
         #TODO: need to figure out why the below assertion is throwing an error
         #assert type(child)  ==objectify.ObjectifiedElement, 'Child is not an objectify.ObjectifiedElement'
         
-        return getattr(getattr(child, path, default), dtype, default)      
+        return getattr(getattr(child, path, default), dtype, default)     
+        
+    context = etree.iterparse(path, events=('end',), tag=tags)
     
-    parsed = objectify.parse(path)
-    root = parsed.getroot()
-    tagtest(root, tags)
-
-    print('File parsed.  Now extracting '+ str(root.countchildren()) + ' xml elements')    
-    
-    data                = {}  
-    for i, kid in enumerate(root.getchildren()):
-        # 'count' child does not contain valid contract data, consequently it is skipped
+    data = {} 
+    for i, (_, element) in enumerate(context):
+        kid = objectify.fromstring(etree.tostring(element))
         if kid.tag == '{http://www.fpdsng.com/FPDS}count':
-            continue
+            total = kid.total.pyval
+            print('Total # of xml elements: {:,}'.format(total))
         else:
+        # 'count' child does not contain valid contract data, consequently it is skipped
             if hasattr(kid.awardID, 'referencedIDVID'):
                 piidIDV = kid.awardID.referencedIDVID.PIID.text
                 modNumIDV = kid.awardID.referencedIDVID.modNumber.text
@@ -119,16 +118,19 @@ def FPDSxmlparse(path, default=np.nan, tags = 2):
                        'itCommercialItemCat':   childhandlr(kid.productOrServiceInformation, 'informationTechnologyCommercialItemCategory','text', default),
                        'reason_not_competed':   childhandlr(kid.competition, 'reasonNotCompeted','text', default)
                        }
-                       
+              
+            element.clear() 
+            if float(i)%10000 == 0: print('Extracting XML -> %0.1f%% complete' %(100*float(i)/total))
+              
     df= pd.DataFrame.from_dict(data, orient = 'index')
     
     # Convert date columns into datetime format
     for x in ['ultimateCompletionDate','signedDate', 'currentCompletionDate', 'effectiveDate']: df[x] = pd.to_datetime(df[x], errors = 'coerce')
         
     # Check to make sure length of dataframe matches children in root 
-    assert len(df)==len(root.getchildren())-1
+    assert len(df)==total, 'Length of dataframe does not match number of xml elements'
     # Check to make sure there are not entirely null columns in dataframe
-    assert all(df.isnull().all())==False
+    assert all(df.isnull().all())==False, 'one or more columns in this dataframe is/are entirely null'
     
     return df
     
@@ -150,7 +152,7 @@ def FPDSstoreh5(path, key, df):
     assert type(df)     ==pd.DataFrame
     
     storeName = ''.join(['/', key])
-    store = pd.HDFStore(path)
+    store = pd.HDFStore(path, complib= 'zlib')
     
     if storeName in store.keys():
         print('****Key '+ key + ' already in HDF5 Store***')
@@ -161,12 +163,12 @@ def FPDSstoreh5(path, key, df):
     else:
         store[key] = df
         
-    print(store)
+    print(store)    
     store.close()
     
 #%%
 
-for x in get_xmlList(r'C:\Users\Chris\Downloads\Air Force'):    
+for x in get_xmlList(r'C:\Users\Chris\Downloads\FPDS Archive\Navy'):    
     key = x.split('\\')[-1].split('.')[0].lstrip(string.digits+'-').lower().replace('-','_')
     FPDSstoreh5(HDF5path, key, FPDSxmlparse(x))
 
