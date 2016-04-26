@@ -21,11 +21,11 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
        input: 
            path [string] - valid file path to xml archive data
            default[optional] - value returned if dependent path is not in child
-           tags[list] - tag values used in iterparse
+           tags[list] - list of tag values used in iterparse
        return: pandas dataframe with each xml child as a row
     '''
-    assert type(path)   ==str, 'path is a string'    
-    assert type(tags)   ==list, 'list of tags to use in iterparse'
+    assert type(path)   ==  str, 'path is a string'    
+    assert type(tags)   ==  list, 'list of tags to use in iterparse'
     
     def childhandlr(child, path, dtype, default):
         '''
@@ -38,13 +38,17 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
             default [optional] - value used to return if xml tag is not present
         return: xml string, float, or integer depending on specified data type
         '''
-        assert type(path)   ==str, 'path is not a string'
-        assert type(dtype)  ==str, 'dtype is not a string'
+        assert type(path)   ==  str, 'path is not a string'
+        assert type(dtype)  ==  str, 'dtype is not a string'
         #TODO: need to figure out why the below assertion is throwing an error
         #assert type(child)  ==objectify.ObjectifiedElement, 'Child is not an objectify.ObjectifiedElement'
         
-        return getattr(getattr(child, path, default), dtype, default)     
+        return getattr(getattr(child, path, default), dtype, default)   
         
+    #==============================================================================
+    # Iterparse is a method that parses each xml tag sequently to save memory. Method below is configured to return only 
+    # xml end tags from the function input        
+    #==============================================================================
     context = etree.iterparse(path, events=('end',), tag=tags)
     
     data = {} 
@@ -54,7 +58,6 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
             total = kid.total.pyval
             print('Total # of xml elements: {:,}'.format(total))
         else:
-        # 'count' child does not contain valid contract data, consequently it is skipped
             if hasattr(kid.awardID, 'referencedIDVID'):
                 piidIDV = kid.awardID.referencedIDVID.PIID.text
                 modNumIDV = kid.awardID.referencedIDVID.modNumber.text
@@ -120,7 +123,7 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
                        }
               
             element.clear() 
-            if float(i)%10000 == 0: print('Extracting XML -> %0.1f%% complete' %(100*float(i)/total))
+            if float(i)%20000 == 0: print('Extracting XML -> %0.1f%% complete' %(100*float(i)/total))
               
     df= pd.DataFrame.from_dict(data, orient = 'index')
     
@@ -168,8 +171,9 @@ def FPDSstoreh5(path, key, df):
     
 #%%
 
-for x in get_xmlList(r'C:\Users\Chris\Downloads\FPDS Archive\Navy'):    
+for x in get_xmlList(r'C:\Users\Chris\Downloads\FPDS Archive\Army'):    
     key = x.split('\\')[-1].split('.')[0].lstrip(string.digits+'-').lower().replace('-','_')
+    print(key)
     FPDSstoreh5(HDF5path, key, FPDSxmlparse(x))
 
 #%%%
