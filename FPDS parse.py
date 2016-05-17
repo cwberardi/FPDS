@@ -52,6 +52,8 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
     context = etree.iterparse(path, events=('end',), tag=tags)
     
     data = {} 
+    df = pd.DataFrame()
+    
     for i, (_, element) in enumerate(context):
         kid = objectify.fromstring(etree.tostring(element))
         if kid.tag == '{http://www.fpdsng.com/FPDS}count':
@@ -68,7 +70,7 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
                 modNum = kid.awardID.awardContractID.modNumber.text
                 piidIDV = None
                 modNumIDV = None
-            
+                
             data[i]={'modNum' :                 modNum,
                        'piid' :                 piid,
                        'piidIDV' :              piidIDV,
@@ -101,7 +103,7 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
                        'ultimateCompletionDate':childhandlr(kid.relevantContractDates, 'ultimateCompletionDate','text', default),
                        'k_OfficeAgencyID':      childhandlr(kid.purchaserInformation, 'contractingOfficeAgencyID','text', default),
                        'k_OfficeID':            childhandlr(kid.purchaserInformation, 'contractingOfficeID','text',default),
-                       'forProfit':             childhandlr(kid.vendor.vendorSiteDetails.vendorOrganizationFactors.profitStructure, 'isForProfitOrganization','text', default),
+                       'forProfit':             childhandlr(getattr(getattr(kid.vendor.vendorSiteDetails, 'vendorOrganizationFactors',default), 'profitStructure', default), 'isForProfitOrganization','text', default),
                        'fundingReqAgencyID':    childhandlr(kid.purchaserInformation, 'fundingRequestingAgencyID', 'pyval', default),
                        'fundingReqOfficeID':    childhandlr(kid.purchaserInformation, 'fundingRequestingOfficeID', 'pyval',default),
                        'multiYearContract':     childhandlr(kid.contractData, 'multiYearContract','text', default),
@@ -123,10 +125,16 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
                        }
               
             element.clear() 
-            if float(i)%20000 == 0: print('Extracting XML -> %0.1f%% complete' %(100*float(i)/total))
-              
-    df= pd.DataFrame.from_dict(data, orient = 'index')
-    
+            #==============================================================================
+            # Below if statement appends the xml data from a dict to a dataframe in 40,000 row increments, without chunk-by-chunk processing 
+            # resulting dictionary is out of memory.            
+            #==============================================================================
+            if float(i)%40000 == 0: 
+                df = pd.concat([df, pd.DataFrame.from_dict(data, orient = 'index')])
+                print('Extracting XML -> %0.1f%% complete / Current DataFrame -> %s' %(100*float(i)/total, df.shape))
+                data = {}     
+                
+    df = pd.concat([df, pd.DataFrame.from_dict(data, orient = 'index')])
     # Convert date columns into datetime format
     for x in ['ultimateCompletionDate','signedDate', 'currentCompletionDate', 'effectiveDate']: df[x] = pd.to_datetime(df[x], errors = 'coerce')
         
@@ -138,7 +146,7 @@ def FPDSxmlparse(path, default=np.nan, tags = ['{http://www.fpdsng.com/FPDS}awar
     return df
     
 #%%
-def FPDSstoreh5(path, key, df):
+def FPDSstoreh5(path, key, xml):
     '''
     This function adds a dataframe to an existing HDF5store.  However, before adding it checks to see if the key is alrady in the store.  
     If so, returns assertion error
@@ -152,7 +160,7 @@ def FPDSstoreh5(path, key, df):
     '''
     assert type(path)   ==str 
     assert type(key)    ==str
-    assert type(df)     ==pd.DataFrame
+    assert type(xml)    ==str
     
     storeName = ''.join(['/', key])
     store = pd.HDFStore(path, complib= 'zlib')
@@ -162,35 +170,37 @@ def FPDSstoreh5(path, key, df):
         rewrite = input('Delete old key/dataframe and add new key/dataframe? (y/n): ')
         if rewrite.lower() == 'y':
             del store[key]
-            store[key] = df
+            store[key] = FPDSxmlparse(xml)
     else:
-        store[key] = df
+        store[key] = FPDSxmlparse(xml)
         
     print(store)    
     store.close()
     
 #%%
 
-for x in get_xmlList(r'C:\Users\Chris\Downloads\FPDS Archive\Army'):    
-    key = x.split('\\')[-1].split('.')[0].lstrip(string.digits+'-').lower().replace('-','_')
+for xml in get_xmlList(r'C:\Users\Chris\Downloads\FPDS Archive\DLA'):    
+    key = xml.split('\\')[-1].split('.')[0].lstrip(string.digits+'-').lower().replace('-','_')
     print(key)
-    FPDSstoreh5(HDF5path, key, FPDSxmlparse(x))
+    FPDSstoreh5(HDF5path, key, xml)
 
-#%%%
+#%%
 def makeCat(columns, df):
     for x in columns:
         df[x] = df[x].astype('category')
         
 store = pd.HDFStore(HDF5path, mode='r')
-afDF = pd.DataFrame()
+finalDF = pd.DataFrame()
 for x in store.keys():
-    afDF = pd.concat((afDF, store[x]), ignore_index = True)
+    print(x)
+    tempDF = store[x]
+    finalDF = pd.concat((finalDF, tempDF[tempDF.reason_not_competed=='PDR']), ignore_index = True)
 store.close()
 
 catCols = ['GFE-GFP', 'comp_type', 'contractActionType','contractBundling','contractFinancing','costOrPricingData', 'typ_set_aside', 'typeOfContractPricing','undefinitizedAction',
            'vendorCOSmallBusDeter','statuteExcpToFairOp', 'solprocedures', 'reason_not_competed', 'agencyID', 'claimantProgramCode', 'fedBizOpps','foreignFunding',
            'fundingReqAgencyID','fundingReqOfficeID', 'itCommercialItemCat', 'multiYearContract']
 
-makeCat(catCols, afDF)
+makeCat(catCols, finalDF)
 #%%
 #df.isnull().sum().sort_values(ascending=False).div(len(df))
