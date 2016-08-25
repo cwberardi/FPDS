@@ -303,35 +303,7 @@ ax4.set_ylabel('Obligated Amount')
 
 fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\entriesperyear.tiff', dpi=150, bbox_inches='tight')
 
-#%%
-#==============================================================================
-# Trends for competition type over time
-#==============================================================================
-compDF = pd.crosstab(clipDF.FY, clipDF.comp_type)
-compDF.index = pd.to_datetime(compDF.index, format = '%Y')
-compDF.drop(['CDO', 'NDO'], axis = 1, inplace=True)
-compDF = compDF.reindex(columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G'])
-compDF.rename(columns = compMap, inplace=True)
-compDF.plot(kind='area', stacked=True)
-plt.legend(frameon=True,  bbox_to_anchor=(0., 1.01, 1., .102), loc=4,
-           ncol=2, mode="expand", borderaxespad=0.)
-#%%           
-#==============================================================================
-# Competition type as a percentage of total contracts by FY
-#==============================================================================
-compDF2=compDF.copy()          
-for rows in compDF2.index:
-    compDF2.ix[rows]=compDF2.ix[rows].div(compDF2.ix[rows].sum())
 
-compDF2.rename(columns = compMap, inplace=True)
-compDF2.sort_index(ascending=True).plot(kind='area', stacked=True)
-plt.vlines('4/2013', 0, 1, color = 'r', linestyle='dashed',label = 'Sequestration Start')
-plt.legend(frameon=True,  bbox_to_anchor=(0., -.36, 1., .102), loc=4,
-           ncol=2, mode="expand", borderaxespad=0.)
-plt.ylabel('% of Total Contracts')
-plt.ylim((0,1))
-plt.title('Percentage of Total Contracts by Competition Type', fontsize=14, y=1.03)
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\compTypebyYear', dpi=150, bbox_inches='tight')
 #%%         
 #==============================================================================
 # Subplots, JnA ratio to Awds in both dollars and frequency & PDR ratio to JnA in both dollars and frequency  
