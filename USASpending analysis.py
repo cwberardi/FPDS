@@ -4,6 +4,12 @@ Created on Wed Aug 10 08:22:59 2016
 
 @author: Chris
 """
+import matplotlib as mpl
+mpl.rcParams['backend'] = 'pdf'
+mpl.rc('font',**{'family':'serif'})
+mpl.rc('text', usetex=True)
+mpl.rc('text.latex',unicode=True)
+
 import pandas as pd
 import seaborn as sns
 import statsmodels.api as sm
@@ -20,18 +26,32 @@ pd.set_option('display.float_format', lambda x:'%f'%x)
 USASpendingpath = 'C:\\Users\\Chris\\Documents\\MIT\\Dissertation\\FPDS\\Data\\USASpending.h5'
 
 crossVal = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\crossvalidationFY.csv', index_col=0).rename(columns= {'ObligatedAmount': 'dollarsobligated'})
-   
+
+csisCats = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Git\Lookup Tables\ProductOrServiceCodes.csv', usecols = [0,4,6], index_col=0)
+
+pscCats = pd.Series(data = csisCats.ProductOrServiceArea, index = csisCats.index)
+
+simpleCats = pd.Series(data = csisCats.Simple, index = csisCats.index)
+
 forfundmap = {'A': 'Foreign Funds FMS','B': 'Foreign Funds non-FMS','X': 'Not Applicable'}
               
 dollarFormatter         = FuncFormatter(lambda x, pos:'${:,.0f}'.format(x))
 millionFormatter        = FuncFormatter(lambda x, pos:'$%1.1fM' % (x*1e-6))
-millionNDFormatter        = FuncFormatter(lambda x, pos:'%1.1fM' % (x*1e-6))
+millionNDFormatter      = FuncFormatter(lambda x, pos:'%1.1fM' % (x*1e-6))
 billionFormatter        = FuncFormatter(lambda x, pos:'$%1.1fB' % (x*1e-9))
 trillionFormatter       = FuncFormatter(lambda x, pos:'$%1.1fT' % (x*1e-12))
 generalFormatter        = FuncFormatter(lambda x, pos:'{0:,.0f}'.format(x))
 percentFormatter        = FuncFormatter(lambda x, pos:'{:.2%}'.format(x))
 threepercentFormatter   = FuncFormatter(lambda x, pos:'{:.3%}'.format(x))
 #%%
+
+def latex_float(f):
+    float_str = "{0:.3g}".format(f)
+    if "e" in float_str:
+        base, exponent = float_str.split("e")
+        return r"{0}e^{{{1}}}".format(base, int(exponent))
+    else:
+        return float_str
 
 def makePct(v, precision='0.2'):  
     """Convert number to percentage string."""
@@ -70,7 +90,7 @@ def storeclip(HDF5path):
 #%%
 #==============================================================================
 # Number of values in clipDF should be 11362361 with zero dollar obs removed
-# TODO: Need to think through whether to resample given fiscal_year or use a dateoffset in the datetime index
+# Need to think through whether to resample given fiscal_year or use a dateoffset in the datetime index
 # sample offset: clipDF.index.min() + pd.DateOffset(months=3)
 #==============================================================================
 clipDF = storeclip(USASpendingpath)
@@ -79,13 +99,16 @@ clipDF.set_index('signeddate', inplace=True)
 clipDF.index = clipDF.index + pd.DateOffset(months=3)
 clipDF.replace(':', np.NaN, inplace=True)
 clipDF.reasonnotcompeted = clipDF.reasonnotcompeted.str.strip()
-clipDF['p_or_s']= clipDF.psc_cat.str.isdigit().map({True: 'Product', False :'Service'})
+clipDF['psc_only'] = clipDF.productorservicecode.str.split(':').str.get(0)
+clipDF['psc_simple'] = clipDF.psc_only.map(simpleCats)
+clipDF['psc_simple'] = clipDF.psc_only.map(pscCats)
 clipDF['Service']='OTHER DOD'
 clipDF.loc[clipDF.contractingofficeagencyid == '2100: DEPT OF THE ARMY', 'Service']='DEPT OF THE ARMY'
 clipDF.loc[clipDF.contractingofficeagencyid == '97AS: DEFENSE LOGISTICS AGENCY', 'Service']='DEFENSE LOGISTICS AGENCY'
 clipDF.loc[clipDF.contractingofficeagencyid == '1700: DEPT OF THE NAVY', 'Service']='DEPT OF THE NAVY'
 clipDF.loc[clipDF.contractingofficeagencyid == '5700: DEPT OF THE AIR FORCE', 'Service']='DEPT OF THE AIR FORCE'
-makeCat(['contractingofficeagencyid','p_or_s','contractingofficeid','psc_cat', 'productorservicecode', 'principalnaicscode','fundedbyforeignentity',
+makeCat(['contractingofficeagencyid','contractingofficeid','psc_only','psc_simple', 'psc_simple','psc_cat', 
+         'productorservicecode', 'principalnaicscode','fundedbyforeignentity',
          'extentcompeted', 'vendorname','reasonnotcompeted','Service'], clipDF)
 clipDF.fundedbyforeignentity = clipDF.fundedbyforeignentity.map(forfundmap)
 assert len(clipDF)==11362361, "Does not match validation number"
@@ -94,7 +117,9 @@ assert len(clipDF)==11362361, "Does not match validation number"
 # Creates percent error for each fiscal year against crossvalidation numbers from USASpending.gov.  
 # Asserts error if outside 0.25% difference in any single fiscal year
 #==============================================================================
-millionFormatter        = FuncFormatter(lambda x, pos:'$%1.0fM' % (x*1e-6))
+millionFormatter        = FuncFormatter(lambda x, pos:'\$%1.0fM' % (x*1e-6))
+percentFormatter        = FuncFormatter(lambda x, pos:'{:.2%}'.format(x))
+
 sns.set_style('ticks')
 fig = plt.figure(figsize=(5,2))
 ax = fig.add_subplot(111)
@@ -102,18 +127,17 @@ ax2 = ax.twinx()
 errorDF = pd.DataFrame()
 errorDF['% Diff'] = (crossVal.dollarsobligated-clipDF.groupby('fiscal_year')['dollarsobligated'].sum()).div(crossVal.dollarsobligated)
 errorDF['Difference'] = (crossVal.dollarsobligated-clipDF.groupby('fiscal_year')['dollarsobligated'].sum())
-errorDF['% Diff'].plot(kind='bar', position=1, ax=ax, color = 'r', legend=True, label = '% Error',ylim=(0,0.0005), **{'width':0.3})
+errorDF['% Diff'].plot(kind='bar', position=1, ax=ax, color = 'r', legend=True, label = 'Percent Error',ylim=(0,0.0005), **{'width':0.3})
 errorDF.Difference.plot(kind='bar', position=0, ax=ax2,ylim=(0,80000000), legend=True, label = 'Absolute Error [secondary y-axis]', **{'width':0.3})
 ax2.legend(loc= 'upper left')
+ax.set_xlabel('')
+ax2.set_xlabel('')
 ax.legend(bbox_to_anchor= (0.286,0.85))
 ax.yaxis.set_major_formatter(percentFormatter)
 ax2.yaxis.set_major_formatter(millionFormatter)
-ax.yaxis.set_ticks([0,0.0001,0.0002,0.0003])
+ax.yaxis.set_ticks([0,0.0001,0.0002,0.0003, 0.0004])
 ax2.yaxis.set_ticks([0,20000000,40000000,60000000])
-ax2.tick_params(labelsize=9)
-ax.tick_params(labelsize=9)
-ax.set_title('USASpending.gov Crossvalidation Results', fontsize=12, y=1.04)
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\dataerrors.eps', bbox_inches='tight',dpi=150)
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\dataerrors.pdf', bbox_inches='tight',dpi=150)
 
 assert all(abs((crossVal.dollarsobligated-clipDF.groupby('fiscal_year')['dollarsobligated'].sum()).div(crossVal.dollarsobligated)) < 0.0045), "Outside acceptable error threshold"
 millionFormatter        = FuncFormatter(lambda x, pos:'$%1.1fM' % (x*1e-6))
@@ -147,31 +171,42 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #==============================================================================
 # Histogram of obligation amounts
 #==============================================================================
+plt.rcParams['ytick.labelsize']=16
+plt.rcParams['xtick.labelsize']=16
+
 sns.set_style('ticks')
 sns.distplot(clipDF.dollarsobligated, bins=160, kde=False, hist_kws={'range':(-10e9, 10e9)})
+plt.gcf().set_size_inches(4.5, 4)
 ax = plt.gca()
 ax.set_yscale('log')
 ax.set_xticklabels([-2*10**9, -1*10**9, 0, 1*10**9, 2*10**9, 3*10**9, 4*10**9],rotation =45, horizontalalignment='right')
 ax.grid(alpha = 0.5)
+plt.xlabel('')
 ax.xaxis.set_major_formatter(billionFormatter)
 ax.set_xlim((-2000000000,4000000000))
-ax.set_ylabel('Frequency (log)')
+ax.set_ylabel('Frequency ($\log$)', fontsize=18)
 
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\hist.eps',bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\hist.pdf', bbox_inches='tight')
+
+
 #%%
 totobs = clipDF[clipDF.dollarsobligated>0].dollarsobligated.sum()
 totdeobs = clipDF[clipDF.dollarsobligated<0].dollarsobligated.sum()
+plt.bar([-0.44,0], [totdeobs, totobs], tick_label=['Deobligations', 'Obligations'], align='center', color=['r','g'], width = 0.33, alpha=0.5)
+plt.gcf().set_size_inches(4.5, 4.1)
 ax=plt.gca()
-ax.bar([-0.44,0], [totdeobs, totobs], tick_label=['Deobligations', 'Obligations'], align='center', color=['r','g'], width = 0.35, alpha=0.5)
 ax.yaxis.set_major_formatter(trillionFormatter)
 ax.axhline(color='0.2', lw=1.0)
 ax.set_xlim((-0.7,0.26))
-ax.set_ylabel('Amount Obligated')
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\obs.eps', dpi=150, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\obs.pdf', bbox_inches='tight')
+
+
 #%%
 #==============================================================================
 # subplots for obligations by servie
 #==============================================================================
+assert len(clipDF)==9555267, "Must remove DLA obligations before proceeding"
+
 sns.set_style(style='ticks',rc={'xtick.direction': u'in'})
 billionFormatter        = FuncFormatter(lambda x, pos:'$%1.0fB' % (x*1e-9))
 fig, axs = plt.subplots(2, 5, figsize=(8,3), sharex=True, sharey='row')
@@ -187,7 +222,7 @@ axs[0][0].set_ylabel('Contract Actions')
 axs[1][0].set_ylabel('Total Obligated')
 axs[1][0].yaxis.set_major_formatter(billionFormatter)
 for x in axs[1]: x.set_xlabel(''),x.set_title('')
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\serviceobligatedAmtSubPlots.eps', dpi=150, bbox_inches='tight')
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\serviceobligatedAmtSubPlots.pdf', dpi=150, bbox_inches='tight')
 #%%
 #==============================================================================
 # Resampling data frame monthly and counting frequencies of PDR JnA, JnA, and Awds. Note, only using inital awards (mod # of 0).
@@ -251,35 +286,8 @@ ax4.set_xlabel('Fiscal Year')
 ax4.yaxis.set_major_formatter(billionFormatter)
 ax4.set_ylabel('Obligated Amount')
 
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\entriesperyear.eps', dpi=150, bbox_inches='tight')
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\entriesperyear.pdf', dpi=150, bbox_inches='tight')
 
-#%%
-#==============================================================================
-# Trends for competition type over time
-#==============================================================================
-compDF = pd.crosstab(clipDF.fiscal_year, clipDF.extentcompeted)
-compDF.index = pd.to_datetime(compDF.index, format = '%Y')
-compDF.drop(['CDO: COMPETITIVE DELIVERY ORDER', 'NDO: NON-COMPETITIVE DELIVERY ORDER'], axis = 1, inplace=True)
-compDF = compDF.reindex(columns = ['A: FULL AND OPEN COMPETITION', 'B: NOT AVAILABLE FOR COMPETITION', 'C: NOT COMPETED', 'D: FULL AND OPEN COMPETITION AFTER EXCLUSION OF SOURCES',
-                                   'E: FOLLOW ON TO COMPETED ACTION', 'F: COMPETED UNDER SAP ', 'G: NOT COMPETED UNDER SAP   '])
-compDF.plot(kind='area', stacked=True)
-plt.legend(frameon=True,  bbox_to_anchor=(0., 1.01, 1., .102), loc=4,ncol=2, mode="expand", borderaxespad=0.)
-#%%           
-#==============================================================================
-# Competition type as a percentage of total contracts by fiscal_year
-#==============================================================================
-compDF2=compDF.copy()          
-for rows in compDF2.index:
-    compDF2.ix[rows]=compDF2.ix[rows].div(compDF2.ix[rows].sum())
-
-compDF2.sort_index(ascending=True).plot(kind='area', stacked=True)
-plt.vlines('4/2013', 0, 1, color = 'r', linestyle='dashed',label = 'Sequestration Start')
-plt.legend(frameon=True,  bbox_to_anchor=(0., -.36, 1., .102), loc=4,
-           ncol=2, mode="expand", borderaxespad=0.)
-plt.ylabel('% of Total Contracts')
-plt.ylim((0,1))
-plt.title('Percentage of Total Contracts by Competition Type', fontsize=14, y=1.03)
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\compTypebyYear', dpi=150, bbox_inches='tight')
 #%%         
 #==============================================================================
 # Subplots, JnA ratio to Awds in both dollars and frequency & PDR ratio to JnA in both dollars and frequency  
@@ -303,7 +311,7 @@ ax3.grid()
 
 fig.autofmt_xdate()
 fig.tight_layout()
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\J&Aratio.eps', dpi=150, bbox_inches='tight')
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\J&Aratio.pdf', dpi=150, bbox_inches='tight')
 #%%
 #==============================================================================
 # Ratio plots of PDR, JnA, and Awards by dollar amount
@@ -351,11 +359,14 @@ ax4.legend(frameon=True, shadow=True, fontsize='x-small')
 ax2.legend(frameon=True, shadow=True, fontsize='x-small')
 ax6.legend(frameon=True, shadow=True, fontsize='x-small')
 
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\ratioPlots.eps', dpi=600, bbox_inches='tight')
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\ratioPlots.pdf', dpi=600, bbox_inches='tight')
 
 axlims = []
 for a in (ax1, ax2 , ax3, ax4, ax5, ax6): axlims.append(a.get_ylim())
 #%%
+#==============================================================================
+# Sub plots of OLS regressions on ratio plots
+#==============================================================================
 regList = (df.ratiojnatoawd,testDF.ratiojnatoawd, df.ratiopdrtoawd,testDF.ratiopdrtoawd,df.ratiopdrtojna,testDF.ratiopdrtojna)
 fig, axs = plt.subplots(3, 2, sharex=True, figsize=(10,6.5))
 fig.subplots_adjust(wspace=0.25)
@@ -363,10 +374,10 @@ fig.subplots_adjust(wspace=0.25)
 regx = sm.add_constant(np.arange(1,97))
 for reg, ax, lims, color in zip(regList, axs.flatten(), axlims, ('g', 'b', 'g','b', 'g','b')):
     regr = sm.OLS(reg, regx).fit()
-    print(regr.summary().as_latex())
-    label = '$y = %.2ex + %.2e$\n$r^2 = %.3f$' % (regr.params[1], regr.params[0], regr.rsquared)
+#    print(regr.summary().as_latex()) # Only uncomment if updated summary tables are required
+    label = '$y = ' +latex_float(regr.params[1])+'x + '+latex_float(regr.params[0])+ '$\n$r^2 = %.3f$' %  (regr.rsquared)
     sns.regplot(np.arange(1,97), reg,  ax=ax, color=color, scatter_kws={"alpha": 0.35}, line_kws={'alpha':0.9})
-    ax.text(0.98,0.78,label, transform=ax.transAxes, fontsize=10, horizontalalignment = 'right', bbox=dict(facecolor='w', alpha=0.7))
+    ax.text(0.98,0.75,label, transform=ax.transAxes, fontsize=10, horizontalalignment = 'right', bbox=dict(facecolor='w', alpha=0.7))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.1%}'.format(x)))
     ax.set_ylim(lims)
     ax.set_xlim((0,96))
@@ -386,7 +397,7 @@ axs[2][1].set_xlabel('Time (months)')
 axs[2][0].set_xticks(np.arange(0,85,12))
 axs[2][1].set_xticks(np.arange(0,85,12))
 
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\OLSsubplots.eps', dpi=600, bbox_inches='tight')
+fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\OLSsubplots.pdf', bbox_inches='tight')
 
 #%%
 #==============================================================================
@@ -402,7 +413,7 @@ plt.legend(frameon=True,  bbox_to_anchor=(1.01, 0, .38, 0.38), loc=4,
 plt.title('Reason Not Competed by Fiscal Year', y=1.03,fontsize=14)
 plt.tight_layout()
 
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncbyfiscal_year.eps', dpi=150, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncbyfiscal_year.pdf', bbox_inches='tight')
 #%%
 #==============================================================================
 # quantity of dollars obligated by reasons_not_competed and fiscal year
@@ -432,7 +443,11 @@ clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby
 # Top 15 PDR JnA NAICS codes and cumulative dollar amount
 #==============================================================================
 clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('principalnaicscode')['dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).head(n=15)
-
+#%%
+#==============================================================================
+# PDR JnA psc_groups codes and cumulative dollar amount
+#==============================================================================
+clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('psc_groups')['dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False)
 #%%
 #==============================================================================
 # Reason not competed aggregation table
@@ -455,7 +470,7 @@ plt.ylabel('Obligated Amount ($)')
 plt.grid()
 plt.tight_layout()
 plt.title('Reason Not Competed by Obligated Amount ($)', y=1.03,fontsize=14)
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncby$.eps', dpi=150, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncby$.pdf', dpi=150, bbox_inches='tight')
 #%%
 #==============================================================================
 # Subplots, boxplot of PDR over fiscal_year and line plot of total PDR obligations and PDR frequency per fiscal_year
@@ -472,13 +487,12 @@ ax1 = plt.gca()
 ax1.set_yscale('log')
 ax1.grid()
 ax1.set_ylabel('Obligated Amount ($)')
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRboxplot.eps', dpi=600, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRboxplot.pdf', dpi=600, bbox_inches='tight')
 #%%
 tmpMean = tableDF['sum'].mean()
 tableDF['sum'].plot(label = 'Total Obligations', xlim = (2008,2015),**{'marker':'.', 'ms':15})
 ax2 = plt.gca()
 ax2.axhline(y=tmpMean, color='r', linestyle='dashed',label = 'Average Obligation')
-#ax2.fill_between(tableDF.index.values , tmpMean+tableDF['sum'].std(),  tmpMean-tableDF['sum'].std(), color='r', alpha=0.3)
 ax2.yaxis.set_major_formatter(billionFormatter)
 ax2.grid()
 ax4 = ax2.twinx()
@@ -491,21 +505,27 @@ ax4.yaxis.set_major_formatter(generalFormatter)
 
 fig.autofmt_xdate()
 fig.tight_layout()
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRlineplot.eps', dpi=600, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRlineplot.pdf', dpi=600, bbox_inches='tight')
 #%%
 #==============================================================================
 # Subplots, PDR frequency by service and PDR total $ by service
 #==============================================================================
-fig, (ax1, ax2) = plt.subplots(2, 1, sharex=False, figsize=(8,7))
-fig.subplots_adjust(hspace=0.31)
-fig.suptitle('PDR Frequency and Dollar Amount by Service',fontsize=14)
-pd.crosstab(clipDF[clipDF.modnumber=='0'].Service, clipDF[clipDF.modnumber=='0'].reasonnotcompeted)['PDR: PATENT/DATA RIGHTS'].sort_values(ascending=True).plot(kind='barh', ax=ax1)
-ax1.xaxis.set_major_formatter(generalFormatter)
+sns.set_style('ticks')
 
-pd.crosstab(clipDF.Service, clipDF.reasonnotcompeted, clipDF.dollarsobligated, aggfunc= np.sum)['PDR: PATENT/DATA RIGHTS'].sort_values().plot(kind='barh', color='g', ax=ax2)
+pd.crosstab(clipDF[clipDF.modnumber=='0'].Service, clipDF[clipDF.modnumber=='0'].reasonnotcompeted)['PDR: PATENT/DATA RIGHTS'].sort_values(ascending=True).plot(kind='barh')
+ax = plt.gca()
+plt.gcf().set_size_inches(6, 2)
+plt.ylabel('')
+ax.xaxis.set_major_formatter(generalFormatter)
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRbyservice.eps', bbox_inches='tight')
+
+pd.crosstab(clipDF.Service, clipDF.reasonnotcompeted, clipDF.dollarsobligated, aggfunc= np.sum)['PDR: PATENT/DATA RIGHTS'].sort_values().plot(kind='barh', color='g')
+plt.gcf().set_size_inches(6, 2)
+ax2 = plt.gca()
+plt.ylabel('')
 ax2.xaxis.set_major_formatter(billionFormatter)
 
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRbyservice.eps', dpi=150, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRbyservicedollars.eps', bbox_inches='tight')
 
 #%%
 #==============================================================================
@@ -514,13 +534,28 @@ fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 clipDF['FMS'] = clipDF.descriptionofcontractrequirement.str.contains('FMS')
 clipDF.loc[clipDF.FMS==True, 'fundedbyforeignentity']= 'Foreign Funds FMS'
 #%%
+sns.set_style('ticks')
+fontsize = 18
 #==============================================================================
-# 
+# Count of p_or_s by fiscal year and resulting line plot
 #==============================================================================
-sns.countplot('p_or_s', data = clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'])
+pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].dollarsobligated, aggfunc='count').plot(style='.-', **{'ms':12,'fontsize':fontsize})
 plt.gca().yaxis.set_major_formatter(generalFormatter)
+plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.0f}'.format(x)))
+plt.legend(title='', fontsize=fontsize)
+plt.xlabel('')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\countserviceorproduct.pdf', dpi=150, bbox_inches='tight')
 
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRbyservice.eps', dpi=150, bbox_inches='tight')
+#==============================================================================
+# mean of p_or_s by fiscal year and resulting line plot
+#==============================================================================
+pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].dollarsobligated, aggfunc='mean').plot(style='.-', **{'ms':12,'fontsize':fontsize})
+plt.gca().yaxis.set_major_formatter(millionFormatter)
+plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.0f}'.format(x)))
+plt.legend(title='', fontsize=fontsize, loc='upper left', ncol=2)
+plt.xlabel('')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\meanserviceorproduct.pdf', dpi=150, bbox_inches='tight')
+
 
 #%%
 #==============================================================================
