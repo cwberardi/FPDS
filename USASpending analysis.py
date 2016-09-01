@@ -30,6 +30,11 @@ pd.set_option('display.float_format', lambda x:'%f'%x)
 
 USASpendingpath = 'C:\\Users\\Chris\\Documents\\MIT\\Dissertation\\FPDS\\Data\\USASpending.h5'
 
+cpi = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\CPITable.csv',index_col=0,  skiprows=9,header=1).drop(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct',
+       'Nov', 'Dec'], axis=1)
+
+cpi['rate'] = cpi.ix[2015, 'Annual']/cpi.Annual
+
 crossVal = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\crossvalidationFY.csv', index_col=0).rename(columns= {'ObligatedAmount': 'dollarsobligated'})
 
 csisCats = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Git\Lookup Tables\ProductOrServiceCodes.csv', usecols = [0,4,6], index_col=0)
@@ -127,6 +132,7 @@ assert len(clipDF)==11362361, "Does not match validation number"
 # Asserts error if outside 0.25% difference in any single fiscal year
 #==============================================================================
 assert len(clipDF)==11362361, "Need to run on full set, not after DLA removal"
+assert 'adj_dollarsobligated' not in clipDF.columns, "Need to run numbers before applying inflation adjustment"
 
 fig = plt.figure(figsize=(5,2))
 ax = fig.add_subplot(111)
@@ -149,6 +155,18 @@ fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 
 assert all(abs((crossVal.dollarsobligated-clipDF.groupby('fiscal_year')['dollarsobligated'].sum()).div(crossVal.dollarsobligated)) < 0.0045), "Outside acceptable error threshold"
 
+#%%
+#==============================================================================
+# Adjustments for inflations
+#==============================================================================
+clipDF['adj_dollarsobligated'] = clipDF.dollarsobligated * clipDF.fiscal_year.map(cpi.rate)
+
+def cpi_test(frac=.01, df=clipDF):
+    assert frac < 1, "'frac' must be a fraction of dataframe to sample"
+    test = df.sample(frac=frac)
+    assert all(test['adj_dollarsobligated'] == test.dollarsobligated * test.fiscal_year.map(cpi.rate)), "CPI application error"
+
+cpi_test()
 #%%
 #==============================================================================
 # subplots for obligations by servie
@@ -185,7 +203,7 @@ assert len(clipDF)==9555267, "Does not match validation number"
 # Heatmap of Other DoD agencies obligations
 #==============================================================================
 
-agID = pd.crosstab(clipDF.contractingofficeagencyid, clipDF.fiscal_year, clipDF.dollarsobligated, aggfunc='sum')
+agID = pd.crosstab(clipDF.contractingofficeagencyid, clipDF.fiscal_year, clipDF.adj_dollarsobligated, aggfunc='sum')
 agID.fillna(0, inplace=True)
 agID[agID<0]=-1
 agID[agID==0]=0
@@ -197,14 +215,14 @@ cbar.set_ticklabels(["Negative Obligations", "Zero Obligations", "Positive Oblig
 ax.set_xlabel('')
 ax.set_ylabel('')
 ax.set_title('Obligations by Agency and Fiscal Year', fontsize=12,  y=1.05)
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\DoD_Agency_Scaled_Obligations.pdf', dpi=600, bbox_inches='tight')
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\DoD_Agency_Scaled_Obligations.pdf', bbox_inches='tight')
 #%%
 #==============================================================================
 # Histogram of obligation amounts
 #==============================================================================
 assert len(clipDF)==9555267, "Need to remove DLA errors before running"
 
-sns.distplot(clipDF.dollarsobligated, bins=160, kde=False, hist_kws={'range':(-10e9, 10e9)})
+sns.distplot(clipDF.adj_dollarsobligated, bins=160, kde=False, hist_kws={'range':(-10e9, 10e9)})
 plt.gcf().set_size_inches(4.5, 4)
 ax = plt.gca()
 ax.set_yscale('log')
@@ -220,8 +238,8 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #%%
 assert len(clipDF)==9555267, "Need to remove DLA errors before running"
 
-totobs = clipDF[clipDF.dollarsobligated>0].dollarsobligated.sum()
-totdeobs = clipDF[clipDF.dollarsobligated<0].dollarsobligated.sum()
+totobs = clipDF[clipDF.adj_dollarsobligated>0].adj_dollarsobligated.sum()
+totdeobs = clipDF[clipDF.adj_dollarsobligated<0].adj_dollarsobligated.sum()
 plt.bar([-0.44,0], [totdeobs, totobs], tick_label=['Deobligations', 'Obligations'], align='center', color=['r','g'], width = 0.33, alpha=0.5)
 plt.gcf().set_size_inches(4.5, 4.1)
 ax=plt.gca()
@@ -247,9 +265,9 @@ testDF['ratiopdrtojna'] = testDF.pdr.div(testDF.jnatot)
 assert len(clipDF)==9555267, "Need to remove DLA errors before running"
 
 df = pd.DataFrame()
-df['awds'] = clipDF.dollarsobligated.resample('M').sum()
-df['pdr'] = clipDF[clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS'].dollarsobligated.resample('M').sum()
-df['jnatot'] = clipDF.dropna(subset=['reasonnotcompeted']).dollarsobligated.resample('M').sum()
+df['awds'] = clipDF.adj_dollarsobligated.resample('M').sum()
+df['pdr'] = clipDF[clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated.resample('M').sum()
+df['jnatot'] = clipDF.dropna(subset=['reasonnotcompeted']).adj_dollarsobligated.resample('M').sum()
 df['ratiopdrtoawd'] = df.pdr.div(df.awds)
 df['ratiojnatoawd'] = df.jnatot.div(df.awds)
 df['ratiopdrtojna'] = df.pdr.div(df.jnatot)
@@ -258,71 +276,71 @@ df['ratiopdrtojna'] = df.pdr.div(df.jnatot)
 # Displays the frequency of entries by fiscal year in bar and line format with BBP initatives overlaid
 #==============================================================================
 
-fig, ((ax1, ax3), (ax2, ax4)) = plt.subplots(2, 2, sharex=False, figsize=(15,8))   
-fig.suptitle('Number of Entries and Total Obligations per Fiscal Year', fontsize=14)
-fig.subplots_adjust(wspace=0.26)
-clipDF.fiscal_year.value_counts().sort_index().plot(kind='bar', ax=ax1, label= 'Contract Actions',rot=0, **{'width':0.8})
-ax1.legend(frameon=True, shadow=True, loc='lower right')
-ax1.yaxis.set_major_formatter(generalFormatter)
-
-testDF.awds.plot(ax=ax2, label='Contract Actions')
-ax2.annotate('BBP 3.0', xy=('4/2015', testDF.loc['4/2015', 'awds'][0]+9000),  xycoords='data',
-            xytext=('4/2015', testDF.loc['4/2015', 'awds'][0]+80000), textcoords='data',
-            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
-            horizontalalignment='center', verticalalignment='top',
-             bbox=dict(boxstyle="round", fc="lightgrey"))
-ax2.annotate('BBP 2.0', xy=('4/2013', testDF.loc['4/2013', 'awds'][0]),  xycoords='data',
-            xytext=('4/2013', testDF.loc['4/2013', 'awds'][0]+80000), textcoords='data',
-            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
-            horizontalalignment='center', verticalalignment='top',
-            bbox=dict(boxstyle="round", fc="lightgrey"))
-ax2.annotate('BBP 1.0', xy=('6/2010', testDF.loc['6/2010', 'awds'][0]),  xycoords='data',
-            xytext=('6/2010', testDF.loc['6/2010', 'awds'][0]+80000), textcoords='data',
-            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
-            horizontalalignment='center', verticalalignment='top',
-            bbox=dict(boxstyle="round", fc="lightgrey"))
-ax2.set_xlabel('Fiscal Year')
-ax2.yaxis.set_major_formatter(generalFormatter)
-ax2.legend(frameon=True, shadow=True, loc='upper right')
-
-clipDF.groupby('fiscal_year')['dollarsobligated'].sum().plot(kind='bar', color='g', label= 'Obligated \$', rot=0, ax=ax3, **{'width':0.8})
-ax3.legend(frameon=True, shadow=True, loc='lower right')
-ax3.set_xlabel('')
-ax3.yaxis.set_major_formatter(billionFormatterZero)
-ax3.set_ylabel('Obligated Amount')
-
-clipDF.dollarsobligated.resample('M').sum().plot(ax=ax4, label = 'Obligated \$', color = 'g')
-ax4.legend(frameon=True, shadow=True)
-ax4.set_xlabel('Fiscal Year')
-ax4.yaxis.set_major_formatter(billionFormatterZero)
-ax4.set_ylabel('Obligated Amount')
-
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\entriesperyear.pdf', bbox_inches='tight')
+#fig, ((ax1, ax3), (ax2, ax4)) = plt.subplots(2, 2, sharex=False, figsize=(15,8))   
+#fig.suptitle('Number of Entries and Total Obligations per Fiscal Year', fontsize=14)
+#fig.subplots_adjust(wspace=0.26)
+#clipDF.fiscal_year.value_counts().sort_index().plot(kind='bar', ax=ax1, label= 'Contract Actions',rot=0, **{'width':0.8})
+#ax1.legend(frameon=True, shadow=True, loc='lower right')
+#ax1.yaxis.set_major_formatter(generalFormatter)
+#
+#testDF.awds.plot(ax=ax2, label='Contract Actions')
+#ax2.annotate('BBP 3.0', xy=('4/2015', testDF.loc['4/2015', 'awds'][0]+9000),  xycoords='data',
+#            xytext=('4/2015', testDF.loc['4/2015', 'awds'][0]+80000), textcoords='data',
+#            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
+#            horizontalalignment='center', verticalalignment='top',
+#             bbox=dict(boxstyle="round", fc="lightgrey"))
+#ax2.annotate('BBP 2.0', xy=('4/2013', testDF.loc['4/2013', 'awds'][0]),  xycoords='data',
+#            xytext=('4/2013', testDF.loc['4/2013', 'awds'][0]+80000), textcoords='data',
+#            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
+#            horizontalalignment='center', verticalalignment='top',
+#            bbox=dict(boxstyle="round", fc="lightgrey"))
+#ax2.annotate('BBP 1.0', xy=('6/2010', testDF.loc['6/2010', 'awds'][0]),  xycoords='data',
+#            xytext=('6/2010', testDF.loc['6/2010', 'awds'][0]+80000), textcoords='data',
+#            arrowprops=dict(facecolor='0.3', shrink=0.05, width=1, headwidth=9),
+#            horizontalalignment='center', verticalalignment='top',
+#            bbox=dict(boxstyle="round", fc="lightgrey"))
+#ax2.set_xlabel('Fiscal Year')
+#ax2.yaxis.set_major_formatter(generalFormatter)
+#ax2.legend(frameon=True, shadow=True, loc='upper right')
+#
+#clipDF.groupby('fiscal_year')['adj_dollarsobligated'].sum().plot(kind='bar', color='g', label= 'Obligated \$', rot=0, ax=ax3, **{'width':0.8})
+#ax3.legend(frameon=True, shadow=True, loc='lower right')
+#ax3.set_xlabel('')
+#ax3.yaxis.set_major_formatter(billionFormatterZero)
+#ax3.set_ylabel('Obligated Amount')
+#
+#clipDF.adj_dollarsobligated.resample('M').sum().plot(ax=ax4, label = 'Obligated \$', color = 'g')
+#ax4.legend(frameon=True, shadow=True)
+#ax4.set_xlabel('Fiscal Year')
+#ax4.yaxis.set_major_formatter(billionFormatterZero)
+#ax4.set_ylabel('Obligated Amount')
+#
+#fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\entriesperyear.pdf', bbox_inches='tight')
 
 #%%         
 #==============================================================================
 # Subplots, JnA ratio to Awds in both dollars and frequency & PDR ratio to JnA in both dollars and frequency  
 #==============================================================================
-fig, (ax1, ax3) = plt.subplots(2, 1, sharex=True, figsize=(8,7))   
-fig.suptitle('Ratio of JnA to Awards and PDR to JnA', y=1.03, fontsize=14)    
-testDF.ratiojnatoawd.plot(color='g', label = 'JnA to total Awds', ax=ax1)
-testDF.ratiojnatoawd.ewm(span=12).mean().plot(label='EWMA (12-month)',  ax=ax1, style='r--')
-df.ratiojnatoawd.plot(color='b', label = 'JnA to total Awds ($)', ax=ax1)
-df.ratiojnatoawd.ewm(span=12).mean().plot(label='EWMA (12-month)', ax=ax1, style='r-.')
-ax1.grid()
-ax1.legend(frameon=True, shadow=True, ncol=2, loc='upper right')
-
-testDF.ratiopdrtojna.plot(color='g', label = 'PDR to total JnA', ax=ax3)
-testDF.ratiopdrtojna.ewm(span=12).mean().plot(label='EWMA (12-month)',  ax=ax3, style='r--')
-df.ratiopdrtojna.plot(color='b', label = 'PDR to total JnA ($)', ax=ax3)
-df.ratiopdrtojna.ewm(span=12).mean().plot(label='EWMA (12-month)', ax=ax3, style='r-.')
-ax3.legend(frameon=True, shadow=True, ncol=2, loc='upper left')
-ax3.set_xlabel('Fiscal Year')
-ax3.grid()
-
-fig.autofmt_xdate()
-fig.tight_layout()
-fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\J&Aratio.pdf', dpi=150, bbox_inches='tight')
+#fig, (ax1, ax3) = plt.subplots(2, 1, sharex=True, figsize=(8,7))   
+#fig.suptitle('Ratio of JnA to Awards and PDR to JnA', y=1.03, fontsize=14)    
+#testDF.ratiojnatoawd.plot(color='g', label = 'JnA to total Awds', ax=ax1)
+#testDF.ratiojnatoawd.ewm(span=12).mean().plot(label='EWMA (12-month)',  ax=ax1, style='r--')
+#df.ratiojnatoawd.plot(color='b', label = 'JnA to total Awds ($)', ax=ax1)
+#df.ratiojnatoawd.ewm(span=12).mean().plot(label='EWMA (12-month)', ax=ax1, style='r-.')
+#ax1.grid()
+#ax1.legend(frameon=True, shadow=True, ncol=2, loc='upper right')
+#
+#testDF.ratiopdrtojna.plot(color='g', label = 'PDR to total JnA', ax=ax3)
+#testDF.ratiopdrtojna.ewm(span=12).mean().plot(label='EWMA (12-month)',  ax=ax3, style='r--')
+#df.ratiopdrtojna.plot(color='b', label = 'PDR to total JnA ($)', ax=ax3)
+#df.ratiopdrtojna.ewm(span=12).mean().plot(label='EWMA (12-month)', ax=ax3, style='r-.')
+#ax3.legend(frameon=True, shadow=True, ncol=2, loc='upper left')
+#ax3.set_xlabel('Fiscal Year')
+#ax3.grid()
+#
+#fig.autofmt_xdate()
+#fig.tight_layout()
+#fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\J&Aratio.pdf', dpi=150, bbox_inches='tight')
 #%%
 #==============================================================================
 # Ratio plots of PDR, JnA, and Awards by dollar amount
@@ -420,84 +438,98 @@ fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #==============================================================================
 # Number of reasons_not_competed by fiscal year
 #==============================================================================
-
-notcompDF = pd.crosstab(clipDF.fiscal_year, clipDF.reasonnotcompeted)
-notcompDF.index = pd.to_datetime(notcompDF.index, format = '%Y')
-notcompDF.sort_index(ascending=True, inplace=True)
-notcompDF.plot(kind='area', stacked=True)
-plt.legend(frameon=True,  bbox_to_anchor=(1.01, 0, .38, 0.38), loc=4,
-           ncol=1, mode="expand", borderaxespad=0.)
-plt.title('Reason Not Competed by Fiscal Year', y=1.03,fontsize=14)
-plt.tight_layout()
-
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncbyfiscal_year.pdf', bbox_inches='tight')
+#
+#notcompDF = pd.crosstab(clipDF.fiscal_year, clipDF.reasonnotcompeted)
+#notcompDF.index = pd.to_datetime(notcompDF.index, format = '%Y')
+#notcompDF.sort_index(ascending=True, inplace=True)
+#notcompDF.plot(kind='area', stacked=True)
+#plt.legend(frameon=True,  bbox_to_anchor=(1.01, 0, .38, 0.38), loc=4,
+#           ncol=1, mode="expand", borderaxespad=0.)
+#plt.title('Reason Not Competed by Fiscal Year', y=1.03,fontsize=14)
+#plt.tight_layout()
+#
+#plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncbyfiscal_year.pdf', bbox_inches='tight')
 #%%
 #==============================================================================
 # quantity of dollars obligated by reasons_not_competed and fiscal year
 #==============================================================================
-dollarDF = pd.crosstab(clipDF.fiscal_year, clipDF.reasonnotcompeted, clipDF.dollarsobligated, aggfunc = 'sum')
-dollarDF.index = pd.to_datetime(dollarDF.index, format = '%Y')
-dollarDF.plot(kind='area', stacked=False)
-plt.legend(frameon=True,  bbox_to_anchor=(1.01, 0, .4, .102), loc=4,
-           ncol=1, mode="expand", borderaxespad=0.)
-           
+#dollarDF = pd.crosstab(clipDF.fiscal_year, clipDF.reasonnotcompeted, clipDF.dollarsobligated, aggfunc = 'sum')
+#dollarDF.index = pd.to_datetime(dollarDF.index, format = '%Y')
+#dollarDF.plot(kind='area', stacked=False)
+#plt.legend(frameon=True,  bbox_to_anchor=(1.01, 0, .4, .102), loc=4,
+#           ncol=1, mode="expand", borderaxespad=0.)
+#           
 #%%
 #==============================================================================
 # Pandas option for displaying floats as currencies
 #==============================================================================
 pd.options.display.float_format = '${:,.0f}'.format
 np.set_printoptions(formatter={'float_kind':'${:,.0f}'})
+pd.set_option('max_colwidth', 40)
 #%%
 #==============================================================================
 # Top 15 PDR JnA Vendors and cumulative dollar amounts from fiscal_year08-fiscal_year15
 #==============================================================================
-clipDF.loc[clipDF.vendorname=='BOEING AEROSPACE OPERATIONS INCORPORATED', 'vendorname']='BOEING COMPANY, THE'
-clipDF.loc[clipDF.vendorname=='BOEING AEROSPACE OPERATIONS, INC.', 'vendorname']='BOEING COMPANY, THE'               
-clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('vendorname')['dollarsobligated'].agg(['count', np.sum,np.mean]).sort_values(by='sum',ascending=False).head(n=15)
+#clipDF.loc[clipDF.vendorname=='BOEING AEROSPACE OPERATIONS INCORPORATED', 'vendorname']='BOEING COMPANY, THE'
+#clipDF.loc[clipDF.vendorname=='BOEING AEROSPACE OPERATIONS, INC.', 'vendorname']='BOEING COMPANY, THE'               
+#clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('vendorname')['dollarsobligated'].agg(['count', np.sum,np.mean]).sort_values(by='sum',ascending=False).head(n=15)
 
 #%%
 #==============================================================================
-# Top 15 PDR JnA NAICS codes and cumulative dollar amount
+# Top 10 PDR JnA NAICS codes and cumulative dollar amount
 #==============================================================================
-clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('principalnaicscode')['dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).head(n=15)
+print(clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('principalnaicscode')['adj_dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).head(n=10).to_latex())
+#%%
+#==============================================================================
+# Top 10 PDR JnA PSC codes and cumulative dollar amount
+#==============================================================================
+print(clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('productorservicecode')['adj_dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).head(n=10).to_latex())
+
 #%%
 #==============================================================================
 # PDR JnA psc_groups codes and cumulative dollar amount
 #==============================================================================
-clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('psc_groups')['dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False)
+print(clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('psc_groups')['adj_dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).to_latex())
+
+#%%
+#==============================================================================
+# PDR JnA psc_simple codes and cumulative dollar amount
+#==============================================================================
+print(clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('psc_simple')['adj_dollarsobligated'].agg(['count', np.sum, np.mean]).sort_values(by='sum', ascending=False).to_latex())
+
 #%%
 #==============================================================================
 # Reason not competed aggregation table
 #==============================================================================
-clipDF.groupby('reasonnotcompeted')['dollarsobligated'].agg(['count',np.sum, np.median, np.mean, np.std]).sort_values(by='sum', ascending=False)
+clipDF.groupby('reasonnotcompeted')['adj_dollarsobligated'].agg(['count',np.sum, np.median, np.mean]).sort_values(by='sum', ascending=False)
 
 #%%
 #==============================================================================
 # Boxplot of Reason Not completed by Obligated Amount
 #==============================================================================
-plt.figure(figsize=(9,5))
-sns.boxplot('reasonnotcompeted', 'dollarsobligated', 
-            data=clipDF,whis=[5, 95],
-            order = clipDF.groupby('reasonnotcompeted')['dollarsobligated'].sum().sort_values(ascending=False).index.values,
-            **{'showmeans': True})
-plt.yscale('log')
-plt.xticks(rotation=45, horizontalalignment = 'right')
-plt.xlabel('')
-plt.ylabel('Obligated Amount ($)')
-plt.grid()
-plt.tight_layout()
-plt.title('Reason Not Competed by Obligated Amount ($)', y=1.03,fontsize=14)
-plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncby$.pdf', bbox_inches='tight')
+#plt.figure(figsize=(9,5))
+#sns.boxplot('reasonnotcompeted', 'dollarsobligated', 
+#            data=clipDF,whis=[5, 95],
+#            order = clipDF.groupby('reasonnotcompeted')['dollarsobligated'].sum().sort_values(ascending=False).index.values,
+#            **{'showmeans': True})
+#plt.yscale('log')
+#plt.xticks(rotation=45, horizontalalignment = 'right')
+#plt.xlabel('')
+#plt.ylabel('Obligated Amount ($)')
+#plt.grid()
+#plt.tight_layout()
+#plt.title('Reason Not Competed by Obligated Amount ($)', y=1.03,fontsize=14)
+#plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\rncby$.pdf', bbox_inches='tight')
 #%%
 #==============================================================================
 # Subplots, boxplot of PDR over fiscal_year 
 #==============================================================================
 plt.figure(figsize=(10,4))
 tableDF = pd.DataFrame()
-tableDF['sum']= clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('fiscal_year')['dollarsobligated'].sum()
-tableDF['count']= clipDF[clipDF.modnumber=='0'].groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('fiscal_year')['dollarsobligated'].count()
+tableDF['sum']= clipDF.groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('fiscal_year')['adj_dollarsobligated'].sum()
+tableDF['count']= clipDF[clipDF.modnumber=='0'].groupby('reasonnotcompeted').get_group('PDR: PATENT/DATA RIGHTS').groupby('fiscal_year')['adj_dollarsobligated'].count()
 
-sns.boxplot('fiscal_year', 'dollarsobligated', 
+sns.boxplot('fiscal_year', 'adj_dollarsobligated', 
             data=clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'],whis=[5, 95], color='lightblue',
             **{'showmeans': True})
 ax1 = plt.gca()
@@ -540,7 +572,7 @@ plt.ylabel('')
 ax.xaxis.set_major_formatter(generalFormatter)
 plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\PDRbyservice.pdf', bbox_inches='tight')
 
-pd.crosstab(clipDF.Service, clipDF.reasonnotcompeted, clipDF.dollarsobligated, aggfunc= np.sum)['PDR: PATENT/DATA RIGHTS'].sort_values().plot(kind='barh', color='g')
+pd.crosstab(clipDF.Service, clipDF.reasonnotcompeted, clipDF.adj_dollarsobligated, aggfunc= np.sum)['PDR: PATENT/DATA RIGHTS'].sort_values().plot(kind='barh', color='g')
 plt.gcf().set_size_inches(6, 2)
 ax2 = plt.gca()
 plt.ylabel('')
@@ -562,7 +594,7 @@ plt.rcParams.update(params)
 #==============================================================================
 # Count of p_or_s by fiscal year and resulting line plot
 #==============================================================================
-pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].dollarsobligated, aggfunc='count').plot(style='.-', **{'ms':12})
+pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated, aggfunc='count').plot(style='.-', **{'ms':12})
 plt.gca().yaxis.set_major_formatter(generalFormatter)
 plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.0f}'.format(x)))
 plt.legend(title='', frameon=True, shadow=True)
@@ -573,7 +605,7 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #==============================================================================
 # mean of p_or_s by fiscal year and resulting line plot
 #==============================================================================
-pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].dollarsobligated, aggfunc='mean').plot(style='.-', **{'ms':12})
+pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated, aggfunc='mean').plot(style='.-', **{'ms':12})
 plt.gca().yaxis.set_major_formatter(millionFormatter)
 plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.0f}'.format(x)))
 plt.legend(title='', loc='upper left', ncol=2, frameon=True, shadow=True)
@@ -586,21 +618,21 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #==============================================================================
 # Creates a choropleth of PDR obligations by state
 #==============================================================================
-testdata = pd.DataFrame(pd.crosstab(clipDF.K_office_state, clipDF.reasonnotcompeted)['PDR: PATENT/DATA RIGHTS'].drop(['#', 'AA', 'AE','AP','GU', 'VI', "ON", "PR",]))
-testdata.index = testdata.index.astype(str)
-state=pd.pivot_table(clipDF,index=['K_office_state','Office Name',], columns= 'reasonnotcompeted', values = 'dollarsobligated', aggfunc='count', dropna=True)['PDR: PATENT/DATA RIGHTS'].dropna().sort_values(ascending=False).astype(int)
-for x in testdata.index:
-    testdata.loc[x, 'text']=state[x].to_string(header=False, max_rows=5)
-
-trc=[dict(
-     type='choropleth',
-     locations=testdata.index.values,
-     locationmode='USA-states',
-     colorscale=[[0,"rgb(220,220,220)"],[0.2,"rgb(245,195,157)"],[0.4,"rgb(245,160,105)"],[1,"rgb(178,10,28)"]],
-     text=testdata.index.values + testdata.text,
-     z=testdata['PDR: PATENT/DATA RIGHTS'].values.astype(float))]
-     
-lyt=dict(geo=dict(scope='usa', showlakes=True, showrivers=True), title="Patent and Data Rights Awards by State (fiscal_year08-fiscal_year15)")
-
-pleth=go.Figure(data=trc,layout=lyt)
-plot_url=py.plot(pleth, filename="Choropleth")
+#testdata = pd.DataFrame(pd.crosstab(clipDF.K_office_state, clipDF.reasonnotcompeted)['PDR: PATENT/DATA RIGHTS'].drop(['#', 'AA', 'AE','AP','GU', 'VI', "ON", "PR",]))
+#testdata.index = testdata.index.astype(str)
+#state=pd.pivot_table(clipDF,index=['K_office_state','Office Name',], columns= 'reasonnotcompeted', values = 'dollarsobligated', aggfunc='count', dropna=True)['PDR: PATENT/DATA RIGHTS'].dropna().sort_values(ascending=False).astype(int)
+#for x in testdata.index:
+#    testdata.loc[x, 'text']=state[x].to_string(header=False, max_rows=5)
+#
+#trc=[dict(
+#     type='choropleth',
+#     locations=testdata.index.values,
+#     locationmode='USA-states',
+#     colorscale=[[0,"rgb(220,220,220)"],[0.2,"rgb(245,195,157)"],[0.4,"rgb(245,160,105)"],[1,"rgb(178,10,28)"]],
+#     text=testdata.index.values + testdata.text,
+#     z=testdata['PDR: PATENT/DATA RIGHTS'].values.astype(float))]
+#     
+#lyt=dict(geo=dict(scope='usa', showlakes=True, showrivers=True), title="Patent and Data Rights Awards by State (fiscal_year08-fiscal_year15)")
+#
+#pleth=go.Figure(data=trc,layout=lyt)
+#plot_url=py.plot(pleth, filename="Choropleth")
