@@ -7,11 +7,12 @@ Created on Wed Aug 10 08:22:59 2016
 import pandas as pd
 import seaborn as sns
 import statsmodels.api as sm
+from statsmodels import tsa
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FuncFormatter
-import plotly.plotly as py
-import plotly.graph_objs as go
+from matplotlib.ticker import FuncFormatter, MultipleLocator, MaxNLocator
+#import plotly.plotly as py
+#import plotly.graph_objs as go
 
 sns.set_style('ticks')
 
@@ -24,16 +25,20 @@ params = {'xtick.labelsize': 12.0,
           
 plt.rcParams.update(params)
 
-py.sign_in('cwberardi', 'yk5snoxt1t')
+#py.sign_in('cwberardi', 'yk5snoxt1t')
 
 pd.set_option('display.float_format', lambda x:'%f'%x)
 
 USASpendingpath = 'C:\\Users\\Chris\\Documents\\MIT\\Dissertation\\FPDS\\Data\\USASpending.h5'
 
-cpi = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\CPITable.csv',index_col=0,  skiprows=9,header=1).drop(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct',
-       'Nov', 'Dec'], axis=1)
+cpi = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\longcpitable.csv',index_col=0,  skiprows=9,header=1).drop(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct',
+       'Nov', 'Dec', 'HALF1', 'HALF2'], axis=1)
 
 cpi['rate'] = cpi.ix[2015, 'Annual']/cpi.Annual
+
+rnd = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\RnDtable.csv', index_col=0, na_values='.')*1000
+irad = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\IRaD Rates.csv', index_col=0)*1000000
+finalrnd = pd.concat([rnd, irad], axis=1)
 
 crossVal = pd.read_csv(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Data\crossvalidationFY.csv', index_col=0).rename(columns= {'ObligatedAmount': 'dollarsobligated'})
 
@@ -157,9 +162,9 @@ assert all(abs((crossVal.dollarsobligated-clipDF.groupby('fiscal_year')['dollars
 
 #%%
 #==============================================================================
-# Adjustments for inflations
+# Adjustments for inflations (current rates as of 9/2016)
 #==============================================================================
-clipDF['adj_dollarsobligated'] = clipDF.dollarsobligated * clipDF.fiscal_year.map(cpi.rate)
+clipDF['adj_dollarsobligated'] = clipDF.dollarsobligated * clipDF.fiscal_year.map(cpi.rate) 
 
 def cpi_test(frac=.01, df=clipDF):
     assert frac < 1, "'frac' must be a fraction of dataframe to sample"
@@ -174,12 +179,15 @@ cpi_test()
 assert len(clipDF)==11362361, "Must not remove DLA obligations before proceeding"
 
 fig, axs = plt.subplots(2, 5, figsize=(8,3), sharex=True, sharey='row')
-titlemap = {'DEPT OF THE AIR FORCE': 'Air Force', 'DEPT OF THE ARMY': 'Army', 'DEPT OF THE NAVY': 'Navy', 'OTHER DOD': 'Other DoD', 'DEFENSE LOGISTICS AGENCY': 'DLA'}
+titlemap = {'DEPT OF THE AIR FORCE': 'Air Force', 'DEPT OF THE ARMY': 'Army', 
+            'DEPT OF THE NAVY': 'Navy', 'OTHER DOD': 'Other DoD', 'DEFENSE LOGISTICS AGENCY': 'DLA'}
 
 sub = pd.crosstab(clipDF.Service, clipDF.fiscal_year).T.reindex(columns=['DEPT OF THE AIR FORCE',
-'DEPT OF THE ARMY', 'DEPT OF THE NAVY','DEFENSE LOGISTICS AGENCY', 'OTHER DOD']).plot(kind='bar', subplots=True, ax=axs[0], legend=False)
+                'DEPT OF THE ARMY', 'DEPT OF THE NAVY','DEFENSE LOGISTICS AGENCY', 'OTHER DOD']).plot(kind='bar', subplots=True, 
+                ax=axs[0], legend=False)
 sub2=pd.crosstab(clipDF.Service, clipDF.fiscal_year, clipDF.dollarsobligated, aggfunc='sum').T.reindex(columns=['DEPT OF THE AIR FORCE',
-'DEPT OF THE ARMY', 'DEPT OF THE NAVY','DEFENSE LOGISTICS AGENCY', 'OTHER DOD']).plot(kind='bar', yticks = [0,4e10,8e10,12e10,16e10],subplots=True, ax=axs[1], legend=False)
+                'DEPT OF THE ARMY', 'DEPT OF THE NAVY','DEFENSE LOGISTICS AGENCY', 'OTHER DOD']).plot(kind='bar', 
+                yticks = [0,4e10,8e10,12e10,16e10],subplots=True, ax=axs[1], legend=False)
 for x in axs.flatten(): x.set_title(titlemap[x.get_title()])
 axs[0][0].yaxis.set_major_formatter(millionNDFormatter)
 axs[0][0].set_ylabel('Contract Actions')
@@ -345,16 +353,17 @@ df['ratiopdrtojna'] = df.pdr.div(df.jnatot)
 #==============================================================================
 # Ratio plots of PDR, JnA, and Awards by dollar amount
 #==============================================================================
+wm=12
 fig, ((ax1, ax2) , (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2, sharex=True, figsize=(10,6.5))
 fig.subplots_adjust(wspace=0.25)
 #fig.suptitle('Ratios of Obligated Amounts (left column) and Ratio of Contract Awards (right column)')
 
 df.ratiojnatoawd.plot(ax=ax1, color='g', label = 'JnA to Awds (\$)')
-df.ratiojnatoawd.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax1,style='r-', alpha = 0.55, lw=3.0)
+df.ratiojnatoawd.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax1,style='r-', alpha = 0.55, lw=3.0)
 df.ratiopdrtoawd.plot(ax=ax3, color='g',label = 'PDR to Awds (\$)')
-df.ratiopdrtoawd.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax3, style='r-', alpha = 0.55, lw=3.0)
+df.ratiopdrtoawd.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax3, style='r-', alpha = 0.55, lw=3.0)
 df.ratiopdrtojna.plot(ax=ax5, color='g',label = 'PDR to JnA (\$)')
-df.ratiopdrtojna.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax5, style='r-', alpha = 0.55, lw=3.0)
+df.ratiopdrtojna.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax5, style='r-', alpha = 0.55, lw=3.0)
 
 ax1.yaxis.set_major_formatter(latexpercentFormatterZero)
 ax3.yaxis.set_major_formatter(latexpercentFormatter)
@@ -375,11 +384,11 @@ ax5.set_xlabel('')
 #fig.suptitle('Ratios of Data Rights (PDR) to JnA and Awds')
 
 testDF.ratiojnatoawd.plot(ax=ax2,  label = 'JnA to Awds')
-testDF.ratiojnatoawd.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax2, style='r-', alpha = 0.55, lw=3.0)
+testDF.ratiojnatoawd.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax2, style='r-', alpha = 0.55, lw=3.0)
 testDF.ratiopdrtoawd.plot(ax=ax4, label = 'PDR to Awds')
-testDF.ratiopdrtoawd.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax4, style='r-', alpha = 0.55, lw=3.0)
+testDF.ratiopdrtoawd.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax4, style='r-', alpha = 0.55, lw=3.0)
 testDF.ratiopdrtojna.plot(ax=ax6, label = 'PDR to JnA')
-testDF.ratiopdrtojna.ewm(span=6).mean().plot(label='EWMA (6-month)', ax=ax6, style='r-', alpha = 0.55, lw=3.0)
+testDF.ratiopdrtojna.ewm(span=wm).mean().plot(label='EWMA ('+str(wm)+'-month)', ax=ax6, style='r-', alpha = 0.55, lw=3.0)
 
 ax2.yaxis.set_major_formatter(latexpercentFormatterZero)
 ax4.yaxis.set_major_formatter(latexpercentFormatter)
@@ -390,6 +399,8 @@ ax2.legend(frameon=True, shadow=True, fontsize='x-small')
 ax6.legend(frameon=True, shadow=True, fontsize='x-small')
 
 ax6.set_xlabel('')
+
+for x in [ax1, ax2, ax3, ax4, ax5, ax6]: x.grid(alpha=0.6, axis='y')
 
 fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\ratioPlots.pdf', dpi=600, bbox_inches='tight')
 
@@ -429,8 +440,8 @@ axs[2][0].set_ylabel('PDR to Total JnA')
 axs[2][0].set_xlabel('Time (months)')
 axs[2][1].set_xlabel('Time (months)')
 
-axs[2][0].set_xticks(np.arange(0,85,12))
-axs[2][1].set_xticks(np.arange(0,85,12))
+axs[2][0].set_xticks(np.arange(0,97,12))
+axs[2][1].set_xticks(np.arange(0,97,12))
 
 fig.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\OLSsubplots.pdf', bbox_inches='tight')
 
@@ -587,9 +598,9 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 clipDF['FMS'] = clipDF.descriptionofcontractrequirement.str.contains('FMS')
 clipDF.loc[clipDF.FMS==True, 'fundedbyforeignentity']= 'Foreign Funds FMS'
 #%%
-params = {'xtick.labelsize': 14.0,
-          'ytick.labelsize': 14.0,
-          'legend.fontsize': 14.0}
+params = {'xtick.labelsize': 18.0,
+          'ytick.labelsize': 18.0,
+          'legend.fontsize': 18.0}
 plt.rcParams.update(params)
 #==============================================================================
 # Count of p_or_s by fiscal year and resulting line plot
@@ -605,10 +616,10 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #==============================================================================
 # mean of p_or_s by fiscal year and resulting line plot
 #==============================================================================
-pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated, aggfunc='mean').plot(style='.-', **{'ms':12})
+pd.crosstab(clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].fiscal_year, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].psc_simple, clipDF[clipDF.reasonnotcompeted=='PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated, aggfunc='mean').plot(style='.-', ylim=(0,2e6) ,**{'ms':12})
 plt.gca().yaxis.set_major_formatter(millionFormatter)
 plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, pos:'{:.0f}'.format(x)))
-plt.legend(title='', loc='upper left', ncol=2, frameon=True, shadow=True)
+plt.legend(title='', loc='upper left', ncol=3, frameon=True, shadow=True)
 plt.xlabel('')
 plt.grid(alpha = 0.6)
 plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\meanserviceorproduct.pdf', bbox_inches='tight')
@@ -636,3 +647,152 @@ plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USAS
 #
 #pleth=go.Figure(data=trc,layout=lyt)
 #plot_url=py.plot(pleth, filename="Choropleth")
+#%%
+
+#==============================================================================
+# Resampling data frame monthly and counting frequencies of PDR JnA, JnA, and Awds. Note, only using inital awards (mod # of 0).
+#==============================================================================
+assert len(clipDF)==9555267, "Need to remove DLA errors before running"
+
+corrDF = pd.DataFrame()
+corrDF['awds'] = clipDF[clipDF.modnumber=='0'].fiscal_year.resample('AS').count()
+corrDF['pdr'] = clipDF[(clipDF.modnumber=='0')&(clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS')].reasonnotcompeted.resample('AS').count()
+corrDF['jnatot'] = clipDF[clipDF.modnumber=='0'].reasonnotcompeted.resample('AS').count()
+corrDF['ratiopdrtoawd'] = corrDF.pdr.div(corrDF.awds)
+corrDF['ratiojnatoawd'] = corrDF.jnatot.div(corrDF.awds)
+corrDF['ratiopdrtojna'] = corrDF.pdr.div(corrDF.jnatot)
+corrDF['dollar_awds'] = clipDF.adj_dollarsobligated.resample('AS').sum()
+corrDF['dollar_pdr'] = clipDF[clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated.resample('AS').sum()
+corrDF['mean_dollar_pdr'] = clipDF[clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated.resample('AS').mean()
+corrDF['median_dollar_pdr'] = clipDF[clipDF.reasonnotcompeted == 'PDR: PATENT/DATA RIGHTS'].adj_dollarsobligated.resample('AS').median()
+corrDF['dollar_jnatot'] = clipDF.dropna(subset=['reasonnotcompeted']).adj_dollarsobligated.resample('AS').sum()
+corrDF['dollar_ratiopdrtoawd'] = corrDF.pdr.div(corrDF.awds)
+corrDF['dollar_ratiojnatoawd'] = corrDF.jnatot.div(corrDF.awds)
+corrDF['dollar_ratiopdrtojna'] = corrDF.pdr.div(corrDF.jnatot)
+corrDF = corrDF.astype('float')
+#%%
+#==============================================================================
+# Analysis of R&D rates https://ncsesdata.nsf.gov/webcaspar/
+#==============================================================================
+
+deflatedrnd = finalrnd.mul(finalrnd.index.to_series().map(cpi.rate), axis=0).dropna(axis=0, how ='all')
+deflatedrnd.fillna(0, inplace=True)
+
+deflatedrnd['Private IRnD'] = deflatedrnd['INCURRED COSTS ALLOCABLE TO GOVT & COMMERCIAL WORK'] - deflatedrnd['DoD SHARE OF ALLOWABLE COST']
+
+deflatedrnd['Federal'] = deflatedrnd['Federal Intramural, Excluding Personnel Costs'] + deflatedrnd['Federal Intramural Personnel Costs']
+
+deflatedrnd['Industry'] = deflatedrnd['Industrial Firms, Excluding FFRDCs'] + deflatedrnd['FFRDCs Administered by Industrial Firms']
+
+deflatedrnd['Universities'] = deflatedrnd['Universities & Colleges, Excluding FFRDCs'] + deflatedrnd['FFRDCs Administered by Universities & Colleges']
+
+deflatedrnd['Nonprofit'] = deflatedrnd['Nonprofit Institutions, Excluding FFRDCs'] + deflatedrnd['FFRDCs Administerd by Nonprofit Institutions']
+
+deflatedrnd.rename(columns={'DoD SHARE OF ALLOWABLE COST': 'Public IRnD'}, inplace=True)
+
+#%%
+
+deflatedrnd[['Federal', 'Industry', 'Universities', 'Nonprofit']].plot(lw=3)
+plt.gca().yaxis.set_major_formatter(billionFormatterZero)
+
+#%%
+pd.options.display.float_format = lambda x:'$%1.1fB' % (x*1e-9)
+
+temp = deflatedrnd.loc[1984:2014, ['Federal', 'Industry', 'Universities', 'Nonprofit', 'Public IRnD', 'Private IRnD']].describe().T.drop(['count', 'min', '25%', '50%','75%', 'max'], axis=1)
+temp['sum'] = temp['pct_total'] = deflatedrnd.loc[1984:2014, ['Federal', 'Industry', 'Universities', 'Nonprofit', 'Public IRnD', 'Private IRnD']].sum()
+temp['pct_total'] = deflatedrnd.loc[1984:2014, ['Federal', 'Industry', 'Universities', 'Nonprofit', 'Public IRnD', 'Private IRnD']].sum().div(deflatedrnd.loc[1984:2014, ['Federal', 'Industry', 'Universities', 'Nonprofit', 'Public IRnD', 'Private IRnD']].sum().sum())
+print(temp.to_latex())
+#%%
+pd.options.display.float_format = '{:.2%}'.format
+
+pctDF = deflatedrnd.loc['1984':'2014', ['Public IRnD', 'Private IRnD','Universities', 'Nonprofit' ,'Federal','Industry']].div(deflatedrnd.loc['1984':'2014',
+                         ['Public IRnD', 'Private IRnD', 'Universities', 'Nonprofit', 'Federal','Industry' ]].sum(axis=1),axis=0)
+                         
+pctDF.plot(kind='bar', figsize= (3.7,4),stacked=True, rot=45,ylim=(0,1))
+                         
+plt.legend(('Public IR\&D', 'Private IR\&D',  'Universities', 'Nonprofit','Federal','For-Profit'), 
+           loc=(0.04,.770), frameon=True, framealpha=0.8, ncol=2, columnspacing=1, handlelength=1, handletextpad=.5, labelspacing=.25)  
+ax = plt.gca()
+ax.yaxis.set_major_formatter(latexpercentFormatterZero)
+ax.xaxis.set_ticklabels(['',1985,'','','','',1990,'','','','',1995,'','','','',2000,'','','','',2005,'','','','',2010,'','','',''])
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)     
+ax.yaxis.set_ticks_position('left')
+ax.xaxis.set_ticks_position('bottom') 
+ax.yaxis.set_minor_locator(MultipleLocator(.1))
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\totalrnd.pdf', bbox_inches='tight')
+
+#%%
+
+fig, ax = plt.subplots(figsize=(3.7,4))
+pctDF.loc[1984:2014, ['Public IRnD', 'Private IRnD']].plot(legend=False, ax=ax, lw=4, rot=45)
+ax.yaxis.set_major_formatter(latexpercentFormatterZero)
+#ax.yaxis.set_ticklabels(['\$0B', '\$2B', '\$4B', '\$6B', '\$8B'])
+ax.xaxis.set_ticklabels(['',1985,1990,1995,2000,2005,2010], fontsize=12)
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.yaxis.set_ticks_position('left')
+ax.xaxis.set_ticks_position('bottom')
+ax.grid(axis='y')
+ax.legend(('Public IR\&D', 'Private IR\&D'), frameon=True, shadow=True)
+
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\IRnD.pdf', bbox_inches='tight')
+
+#%%
+a = corrDF.loc['2008':'2014', 'dollar_pdr']
+b = deflatedrnd.loc[1984:2014, 'Private IRnD']
+a.index = a.index.year
+
+corrs={}
+for x in b.index:
+    if x == 2009:
+        break
+    corrs[x] = (np.corrcoef(a,b.ix[x:x+6])[1][0])
+corrs = pd.Series(corrs)  
+corrs.sort_index(ascending=False, inplace=True)  
+fig, ax = plt.subplots(figsize=(4,2.5))
+ax.vlines(np.arange(0,10,1), 0, corrs[:10].values, colors = 'g', lw=5)
+ax.set_ylim(-1,1)
+ax.yaxis.set_major_locator(MultipleLocator(1))
+ax.yaxis.set_minor_locator(MultipleLocator(.5))
+ax.xaxis.set_major_locator(MultipleLocator(2))
+ax.axhline(color='black', lw=1)
+ax.grid(axis='y', which='minor', linestyle='-')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.yaxis.set_ticks_position('left')
+ax.xaxis.set_ticks_position('bottom')
+ax.set_xlabel('Lag (years)', fontsize=12)
+ax.set_ylabel("Correlation Coefficient", fontsize=12)
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\lagcorrdollars.pdf', bbox_inches='tight')
+
+
+#%%
+a = corrDF.loc['2008':'2014', 'mean_dollar_pdr']
+b = deflatedrnd.loc[1984:2014, 'Private IRnD']
+a.index = a.index.year
+
+corrs={}
+for x in b.index:
+    if x == 2009:
+        break
+    corrs[x] = (np.corrcoef(a,b.ix[x:x+6])[1][0])
+    
+corrs = pd.Series(corrs) 
+corrs.sort_index(ascending=False, inplace=True)  
+fig, ax = plt.subplots(figsize=(4,2.5))
+ax.vlines(np.arange(0,10,1), 0, corrs[:10].values, colors = 'b', lw=5)
+ax.set_ylim(-1,1)
+ax.yaxis.set_major_locator(MultipleLocator(1))
+ax.yaxis.set_minor_locator(MultipleLocator(.5))
+ax.xaxis.set_major_locator(MultipleLocator(2))
+ax.axhline(color='black', lw=1)
+ax.grid(axis='y', which='minor', linestyle='-')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.yaxis.set_ticks_position('left')
+ax.xaxis.set_ticks_position('bottom')
+ax.set_xlabel('Lag (years)', fontsize=12)
+ax.set_ylabel("Correlation Coefficient", fontsize=12)
+
+plt.savefig(r'C:\Users\Chris\Documents\MIT\Dissertation\FPDS\Visualizations\USASpending\lagcorrfreq.pdf', bbox_inches='tight')
