@@ -10,7 +10,7 @@ import statsmodels.api as sm
 from statsmodels import tsa
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FuncFormatter, MultipleLocator, MaxNLocator
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 #import plotly.plotly as py
 #import plotly.graph_objs as go
 
